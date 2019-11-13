@@ -27,6 +27,7 @@ Provides a few file and system metrics for Prometheus.
 
 # Compile binaries 
 *NOTE:* Use nightly version:
+
 ```cargo +nightly build --release```
 
 # Output example
