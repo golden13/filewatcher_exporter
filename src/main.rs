@@ -17,19 +17,16 @@ use sysinfo::{SystemExt, DiskExt};
 use sysinfo::DiskType;
 use std::str::from_utf8;
 
-
-
 #[derive(Debug, Clone, Default)]
 struct MyOptions<'a> {
     targets:Vec<&'a str>
 }
 
-
 fn disk_type_to_str(dtype: &DiskType) -> &str {
     match *dtype {
         DiskType::HDD => "HDD",
         DiskType::SSD => "SSD",
-        DiskType::Unknown(Any) => "Unknown"
+        DiskType::Unknown(any) => "Unknown"
     }
 }
 
@@ -127,7 +124,6 @@ fn main() {
 
             for elem in options.iter() {
                 let s_slice: &str = &elem[..];
-                //println!("Reading file: {:?}", s_slice);
                 let (modified, len) = get_last_updated(s_slice);
                 let mut attributes = Vec::new();
                 attributes.push(("filename", s_slice));
@@ -147,19 +143,16 @@ fn main() {
             attributes.push(("host", hostname.to_str().unwrap()));
 
             // mem_swap_total
-            // TODO: add host attribute?
             let pmetric_mem_swap_total = PrometheusMetric::new("mem_swap_total", MetricType::Gauge, "mem_swap_total collected metric");
             s.push_str(&pmetric_mem_swap_total.render_header());
             s.push_str(&pmetric_mem_swap_total.render_sample(Some(&attributes), system.get_total_swap()));
 
             // mem_total
-            // TODO: add host attribute?
             let pmetric_mem_total = PrometheusMetric::new("mem_total", MetricType::Gauge, "mem_total collected metric");
             s.push_str(&pmetric_mem_total.render_header());
             s.push_str(&pmetric_mem_total.render_sample(Some(&attributes), system.get_total_memory()));
 
             // mem_used
-            // TODO: add host attribute?
             let pmetric_mem_used = PrometheusMetric::new("mem_used", MetricType::Gauge, "mem_used collected metric");
             s.push_str(&pmetric_mem_used.render_header());
             s.push_str(&pmetric_mem_used.render_sample(Some(&attributes), system.get_used_memory()));
@@ -195,13 +188,11 @@ fn main() {
                 attributes2.push(("type", dtype));
 
                 // TODO: mode="rw", host="xxx"
-
                 s.push_str(&pmetric_disk_free.render_sample(Some(&attributes2), disk.get_available_space()));
                 s2.push_str(&pmetric_disk_total.render_sample(Some(&attributes2), disk.get_total_space()));
             }
 
             s.push_str(&s2);
-
 
             Ok(s)
         }
