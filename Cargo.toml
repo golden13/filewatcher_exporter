@@ -1,0 +1,13 @@
+[package]
+name = "rust_filewatcher_exporter"
+version = "0.0.1"
+edition = "2018"
+authors = ["Egor Spivac <golden13@gmail.com>"]
+
+[dependencies]
+prometheus_exporter_base = "0.5.0"
+clap = "2.33.0"
+log = "0.4.8"
+env_logger = "0.7.1"
+sysinfo = "0.9.6"
+gethostname = "0.2.0"
