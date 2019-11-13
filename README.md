@@ -1,6 +1,6 @@
 # Prometheus Filewatcher Exporter
 File meta information exporter written in Rust.
-Provides a few file and system metrics for Prometheus. 
+Provides a few file and system metrics for [Prometheus](https://prometheus.io/)
 
 | Metric name | Description | 
 |---------------------------|---------------|
