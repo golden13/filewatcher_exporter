@@ -65,7 +65,7 @@ fn main() {
             Arg::with_name("targets")
                 .short("t")
                 .help("list of target files to monitor")
-                .default_value("test.file;test2.file") // debug
+                //.default_value("LICENSE") // debug
                 .takes_value(true)
         )
         .get_matches();
@@ -170,7 +170,9 @@ fn main() {
             let pmetric_disk_total = PrometheusMetric::new("disk_total", MetricType::Gauge, "disk_total collected metric");
             let mut s2 = pmetric_disk_total.render_header();
 
+            //system.refresh_disk_list();
             for disk in system.get_disks() {
+                //info!("{:?}", disk);
                 let mut attributes2 = Vec::new();
                 let path = disk.get_name().to_str().unwrap();
                 attributes2.push(("device", path));
