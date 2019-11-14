@@ -2,6 +2,8 @@
 File meta information exporter written in Rust.
 Provides a few file and system metrics for [Prometheus](https://prometheus.io/)
 
+(Built using: [Prometheus exporter base](https://github.com/MindFlavor/prometheus_exporter_base) )
+
 | Metric name | Description | 
 |---------------------------|---------------|
 | filewatcher_file_modified | File last modified timestamp |
@@ -22,11 +24,11 @@ Provides a few file and system metrics for [Prometheus](https://prometheus.io/)
 -p [port] - port number, default 9104
 -h [host] - hostname, default 0.0.0.0
 -v - verbouse 
--t [targets] - list of files to watch
+-t [targets] - list of files to watch, separated by ;
 ```
 
 # Compile binaries 
-*NOTE:* Use nightly version:
+**NOTE:** Use Rust nightly version
 
 ```cargo +nightly build --release```
 
