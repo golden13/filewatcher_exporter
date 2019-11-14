@@ -26,7 +26,7 @@ fn disk_type_to_str(dtype: &DiskType) -> &str {
     match *dtype {
         DiskType::HDD => "HDD",
         DiskType::SSD => "SSD",
-        DiskType::Unknown(any) => "Unknown"
+        DiskType::Unknown(_any) => "Unknown"
     }
 }
 

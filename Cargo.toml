@@ -1,5 +1,5 @@
 [package]
-name = "rust_filewatcher_exporter"
+name = "filewatcher_exporter"
 version = "0.0.1"
 edition = "2018"
 authors = ["Egor Spivac <golden13@gmail.com>"]
