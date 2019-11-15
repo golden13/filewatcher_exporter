@@ -2,7 +2,7 @@
 File meta information exporter written in Rust.
 Provides a few file and system metrics for [Prometheus](https://prometheus.io/)
 
-(Built using: [Prometheus exporter base](https://github.com/MindFlavor/prometheus_exporter_base) )
+*Built using: [Prometheus exporter base](https://github.com/MindFlavor/prometheus_exporter_base)*
 
 | Metric name | Description | 
 |---------------------------|---------------|
@@ -12,14 +12,14 @@ Provides a few file and system metrics for [Prometheus](https://prometheus.io/)
 | mem_used | Total used memory in bytes |
 | mem_swap_total | Swap size in bytes |
 | mem_swap_used | Used swap size in bytes |
-| disk_free | Free disk space in bytes (for each mount point in system) |
-| disk_total | Total dis size in bytes (for each mount point in system) |
+| disk_free | Free disk space in bytes (for each mount point in the system) |
+| disk_total | Total dis size in bytes (for each mount point in the system) |
 
 
 # Run
 ```filewatcher_exporter -p 9104 -h 127.0.0.1 -t "/var/log/nginx/error.log;/var/log/nginx/access.log" ```
 
-# Command line argments
+# Command line arguments
 ```cmd
 -p [port] - port number, default 9104
 -h [host] - hostname, default 0.0.0.0
