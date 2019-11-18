@@ -1,6 +1,8 @@
 # Prometheus Filewatcher Exporter
 The exporter is watching files, providing last modified date, file zise and few system metrics for [Prometheus](https://prometheus.io/).
-Written in Rust.
+
+*Written in [Rust](https://github.com/rust-lang/rust)*
+
 *Built using: [Prometheus exporter base](https://github.com/MindFlavor/prometheus_exporter_base)*
 
 | Metric name | Description | 
