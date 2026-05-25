@@ -1,202 +1,226 @@
-extern crate prometheus_exporter_base;
-extern crate clap;
 extern crate log;
 extern crate env_logger;
 extern crate sysinfo;
 extern crate gethostname;
 
-use clap::{crate_authors, crate_name, crate_version, Arg};
-use log::{info, trace};
-use prometheus_exporter_base::{render_prometheus, MetricType, PrometheusMetric};
-use std::env;
+mod prometheus;
+mod command_line;
+
+use clap::Parser;
+use log::{info};
 use std::fs::metadata;
-use std::net::{SocketAddr};
-use std::process;
 use std::time::SystemTime;
 use sysinfo::{SystemExt, DiskExt};
 use sysinfo::DiskType;
 use std::str::from_utf8;
-
-#[derive(Debug, Clone, Default)]
-struct MyOptions<'a> {
-    targets:Vec<&'a str>
-}
+use axum::{Router, routing::get, extract::State};
 
 fn disk_type_to_str(dtype: &DiskType) -> &str {
     match *dtype {
-        DiskType::HDD => "HDD",
-        DiskType::SSD => "SSD",
-        DiskType::Unknown(_any) => "Unknown"
+        DiskType::HDD => "hdd",
+        DiskType::SSD => "ssd",
+        DiskType::Unknown(_any) => "unknown"
     }
 }
 
-fn get_last_updated(str: &str) -> (u64, u64) {
-    let metadata = metadata(str).unwrap();
-    let len = metadata.len();
-    let time = metadata.modified().unwrap().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    return (time, len);
-}
-
-fn main() {
-    let matches = clap::App::new(crate_name!())
-        .version(crate_version!())
-        .author(crate_authors!("\n"))
-        .arg(
-            Arg::with_name("port")
-                .short("p")
-                .help("exporter port")
-                .default_value("9104")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .help("verbose logging")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("host")
-                .short("h")
-                .help("hostname")
-                .default_value("0.0.0.0")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("targets")
-                .short("t")
-                .help("list of target files to monitor")
-                //.default_value("LICENSE") // debug
-                .takes_value(true)
-        )
-        .get_matches();
-
-    if !matches.is_present("targets") {
-        println!("Error: no `target` specified. Please, run filewatcher_exporter -t [list_of_files_separated_by_;]");
-        process::exit(1);
-    }
-
-    if matches.is_present("verbose") {
-        env::set_var(
-            "RUST_LOG",
-            format!("folder_size=trace,{}=trace", crate_name!()),
-        );
+fn file_type_to_str(file_type: &std::fs::FileType) -> &str {
+    if file_type.is_file() {
+        "file"
+    } else if file_type.is_dir() {
+        "directory"
+    } else if file_type.is_symlink() {
+        "symlink"
     } else {
-        env::set_var(
-            "RUST_LOG",
-            format!("folder_size=info,{}=info", crate_name!()),
+        "unknown"
+    }
+}
+
+fn get_last_updated(str: &str) -> Result<(u64, u64, std::fs::FileType), Box<dyn std::error::Error>> {
+    let metadata = metadata(str)?;
+    let file_type = metadata.file_type();
+    let len = metadata.len();
+    let time = metadata.modified()?.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
+    Ok((time, len, file_type))
+}
+
+#[tokio::main]
+async fn main() {
+    let args = command_line::Args::parse();
+    env_logger::Builder::new()
+        .filter_level(args.verbosity.log_level_filter())
+        .format_timestamp_millis()
+        .format_module_path(false)
+        .format(|buf, record| {
+            use std::io::Write;
+            writeln!(buf, "[{}] {}", record.level(), record.args())
+        })
+        .init();
+
+    info!("Starting file watcher exporter on {}:{}", args.host, args.port);
+
+    let target_list = args.targets;
+    let options: Vec<String> = target_list.split(";").map(|s: &str| s.trim().to_string()).collect();
+    info!("Target files: {}", options.join(", "));
+
+    // check if files exist
+    for target in options.iter() {
+        if !std::path::Path::new(target).exists() {
+            eprintln!("Error: file '{}' does not exist. Please, check the target list.", target);
+            std::process::exit(1);
+        }
+    }
+
+    // general attributes for all metrics, e.g. host="xxx"
+    let mut main_props: Vec<(String, String)> = Vec::new();
+    let hostname = gethostname::gethostname();
+    main_props.push(("host".to_string(), hostname.to_str().unwrap().to_string()));
+
+    let app = Router::new().route("/", get(process_request).with_state((options, main_props)));
+
+    let full_addr = format!("{}:{}", args.host, args.port);
+    let listener = tokio::net::TcpListener::bind(&full_addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+/**
+ * collect data and build a PrometheusMetricCollection
+ */
+async fn collect_data<'a>(options: Vec<String>, global_attributes: Vec<(String, String)>) -> prometheus::PrometheusMetricCollection {
+    let mut result: prometheus::PrometheusMetricCollection = prometheus::PrometheusMetricCollection::new();
+    let mut attributes: Vec<(String, String)> = Vec::new();
+    attributes.extend(global_attributes);
+
+    for target in options.iter() {
+        match get_last_updated(target) {
+            Ok((time, len, file_type)) => {
+                let mut attributes2: Vec<(String, String)> = Vec::new();
+                attributes2.extend(attributes.clone());
+                attributes2.push(("filename".to_string(), target.to_string()));
+                attributes2.push(("filetype".to_string(), file_type_to_str(&file_type).to_string()));
+
+                result.add_metric(
+                    prometheus::PrometheusMetric::new(
+                        "filewatcher_file_modified", 
+                        prometheus::MetricType::Gauge, 
+                        "The timestamp when the file was last modified", 
+                        attributes2.clone(),
+                        time
+                    )
+                );
+
+                result.add_metric(
+                    prometheus::PrometheusMetric::new(
+                        "filewatcher_file_size", 
+                        prometheus::MetricType::Gauge, 
+                        "The size of the file in bytes", 
+                        attributes2.clone(),
+                        len
+                    )
+                );
+            }
+            Err(e) => {
+                eprintln!("Error reading file {}: {}", target, e);
+            }
+        }
+    }
+
+    // collect system metrics
+    collect_system_metrics(&mut result, attributes.clone()).await;
+
+    return result;
+}
+
+async fn collect_system_metrics(result: &mut prometheus::PrometheusMetricCollection, attributes: Vec<(String, String)>) {
+    let mut system = sysinfo::System::new();
+    system.refresh_all();
+    
+    result.add_metric(
+        prometheus::PrometheusMetric::new(
+            "mem_swap_total", 
+            prometheus::MetricType::Gauge, 
+            "mem_swap_total collected metric", 
+            attributes.clone(),
+            system.get_total_swap()
+        )
+    );
+
+    result.add_metric(
+        prometheus::PrometheusMetric::new(
+            "mem_total", 
+            prometheus::MetricType::Gauge, 
+            "mem_total collected metric", 
+            attributes.clone(),
+            system.get_total_memory()
+        )
+    );
+
+    result.add_metric(
+        prometheus::PrometheusMetric::new(
+            "mem_used", 
+            prometheus::MetricType::Gauge, 
+            "mem_used collected metric", 
+            attributes.clone(),
+            system.get_used_memory()
+        )
+    );
+
+    result.add_metric(
+        prometheus::PrometheusMetric::new(
+            "mem_swap_used", 
+            prometheus::MetricType::Gauge, 
+            "mem_swap_used collected metric", 
+            attributes.clone(),
+            system.get_used_swap()
+        )
+    );
+
+    for disk in system.get_disks() {
+        let mut attributes2 = Vec::new();
+        attributes2.extend(attributes.clone());
+        
+        let path = disk.get_name().to_str().unwrap();
+        attributes2.push(("device".to_string(), path.to_string()));
+
+        let fstype = disk.get_file_system();
+        attributes2.push(("fstype".to_string(), from_utf8(fstype).unwrap().to_string()));
+        attributes2.push(("path".to_string(), disk.get_mount_point().to_str().unwrap().to_string()));
+
+        let dtype_enum = &disk.get_type();
+        let dtype = disk_type_to_str(dtype_enum);
+
+        attributes2.push(("type".to_string(), dtype.to_string()));
+
+        // TODO: mode="rw", host="xxx"
+        result.add_metric(
+            prometheus::PrometheusMetric::new(
+                "disk_free", 
+                prometheus::MetricType::Gauge, 
+                "disk_free collected metric", 
+                attributes2.clone(),
+                disk.get_available_space()
+            )
+        );
+
+        result.add_metric(
+            prometheus::PrometheusMetric::new(
+                "disk_total", 
+                prometheus::MetricType::Gauge, 
+                "disk_total collected metric", 
+                attributes2.clone(),
+                disk.get_total_space()
+            )
         );
     }
-    env_logger::init();
+}
 
-    info!("using matches: {:?}", matches);
+async fn process_request(State((options, main_props)): State<(Vec<String>, Vec<(String, String)>)>) -> String {
+    let mut result: String = String::new();
+    let mut global_attributes: Vec<(String, String)> = Vec::new();
+    global_attributes.extend(main_props);
 
-    let target_list = matches.value_of("targets").unwrap();
+    let prometheus_metrics = collect_data(options, global_attributes).await;
 
-    let bind = matches.value_of("port").unwrap();
-    let bind = u16::from_str_radix(&bind, 10).expect("Error: Port must be a valid number");
-    let host =  format!("{}:{}", matches.value_of("host").unwrap(), bind);
+    result.push_str(&prometheus_metrics.to_string());
 
-    let options: Vec<String> = target_list.split(";").map(|s| s.to_string()).collect();
-
-    let addr: SocketAddr = host
-        .parse()
-        .expect("Error: Unable to parse socket address");
-
-    info!("Starting exporter on {} ...", addr);
-
-    render_prometheus(addr, options, |request, options| {
-        async move {
-            // to satisfy the borrow checker? Or exclude memory leaks
-            let options = options.clone();
-            let hostname = gethostname::gethostname();
-
-            trace!(
-                "Request: {:?}, Options: {:?})",
-                request,
-                options
-            );
-
-            let filewatcher_file_modified = PrometheusMetric::new("filewatcher_file_modified", MetricType::Gauge, "The timestamp when the file was last modified");
-            let filewatcher_file_size = PrometheusMetric::new("filewatcher_file_size", MetricType::Gauge, "The size of the file in bytes");
-
-            let mut s = filewatcher_file_modified.render_header();
-            let mut s2 = filewatcher_file_size.render_header();
-
-            for elem in options.iter() {
-                let s_slice: &str = &elem[..];
-                let (modified, len) = get_last_updated(s_slice);
-                let mut attributes = Vec::new();
-                attributes.push(("filename", s_slice));
-                attributes.push(("host", hostname.to_str().unwrap()));
-
-                s.push_str(&filewatcher_file_modified.render_sample(Some(&attributes), modified));
-                s2.push_str(&filewatcher_file_size.render_sample(Some(&attributes), len));
-            }
-
-            s.push_str(&s2);
-
-            // Get system info
-            //let system_info = get_system_info();
-            let mut system = sysinfo::System::new();
-            system.refresh_all();
-            let mut attributes = Vec::new();
-            attributes.push(("host", hostname.to_str().unwrap()));
-
-            // mem_swap_total
-            let pmetric_mem_swap_total = PrometheusMetric::new("mem_swap_total", MetricType::Gauge, "mem_swap_total collected metric");
-            s.push_str(&pmetric_mem_swap_total.render_header());
-            s.push_str(&pmetric_mem_swap_total.render_sample(Some(&attributes), system.get_total_swap()));
-
-            // mem_total
-            let pmetric_mem_total = PrometheusMetric::new("mem_total", MetricType::Gauge, "mem_total collected metric");
-            s.push_str(&pmetric_mem_total.render_header());
-            s.push_str(&pmetric_mem_total.render_sample(Some(&attributes), system.get_total_memory()));
-
-            // mem_used
-            let pmetric_mem_used = PrometheusMetric::new("mem_used", MetricType::Gauge, "mem_used collected metric");
-            s.push_str(&pmetric_mem_used.render_header());
-            s.push_str(&pmetric_mem_used.render_sample(Some(&attributes), system.get_used_memory()));
-
-            // mem_swap_used
-            // INFO: Telegraf doesn't have this metric, only mem_swap_free.
-            let pmetric_mem_swap_used = PrometheusMetric::new("mem_swap_used", MetricType::Gauge, "mem_swap_used collected metric");
-            s.push_str(&pmetric_mem_swap_used.render_header());
-            s.push_str(&pmetric_mem_swap_used.render_sample(Some(&attributes), system.get_used_swap()));
-
-            // Disks information
-            let pmetric_disk_free = PrometheusMetric::new("disk_free", MetricType::Gauge, "disk_free collected metric");
-            s.push_str(&pmetric_disk_free.render_header());
-
-            let pmetric_disk_total = PrometheusMetric::new("disk_total", MetricType::Gauge, "disk_total collected metric");
-            let mut s2 = pmetric_disk_total.render_header();
-
-            //system.refresh_disk_list();
-            for disk in system.get_disks() {
-                //info!("{:?}", disk);
-                let mut attributes2 = Vec::new();
-                let path = disk.get_name().to_str().unwrap();
-                attributes2.push(("device", path));
-
-                attributes2.push(("host", hostname.to_str().unwrap()));
-
-                let fstype = disk.get_file_system();
-                attributes2.push(("fstype", from_utf8(fstype).unwrap()));
-
-                attributes2.push(("path", disk.get_mount_point().to_str().unwrap()));
-
-                let dtype_enum = &disk.get_type();
-                let dtype = disk_type_to_str(dtype_enum);
-
-                attributes2.push(("type", dtype));
-
-                // TODO: mode="rw", host="xxx"
-                s.push_str(&pmetric_disk_free.render_sample(Some(&attributes2), disk.get_available_space()));
-                s2.push_str(&pmetric_disk_total.render_sample(Some(&attributes2), disk.get_total_space()));
-            }
-
-            s.push_str(&s2);
-
-            Ok(s)
-        }
-    });
+    return result;
 }

@@ -1,13 +1,15 @@
 [package]
 name = "filewatcher_exporter"
-version = "0.0.1"
-edition = "2018"
+version = "2.0.0"
+edition = "2024"
 authors = ["Egor Spivac <golden13@gmail.com>"]
 
 [dependencies]
-prometheus_exporter_base = "0.5.0"
-clap = "2.33.0"
-log = "0.4.8"
+clap = { version = "4.6.1", features = ["derive"] }
+log = "0.4.30"
 env_logger = "0.7.1"
 sysinfo = "0.9.6"
-gethostname = "0.2.0"
+gethostname = "1.1.0"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+axum = "0.8.9"
+clap-verbosity-flag = "3.0.4"
